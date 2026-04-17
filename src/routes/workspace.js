@@ -1,7 +1,8 @@
+import express from 'express';
 import { getWorkspace, updateWorkspace, getMembers, connectSmtp, inviteMember, removeMember } from '../controllers/workspaceController.js';
 import { authMiddleware } from '../middleware/auth.js';
 
-const router = Router();
+const router = express.Router();
 
 router.use(authMiddleware);
 router.get('/', getWorkspace);
