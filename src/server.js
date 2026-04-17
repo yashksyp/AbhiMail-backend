@@ -56,7 +56,15 @@ const trackingLimiter = rateLimit({
 // --- Middleware ---
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    // Allow any Vercel deployment, localhost, or the custom FRONTEND_URL env var
+    const allowed = [process.env.FRONTEND_URL, 'http://localhost:5173'];
+    if (!origin || allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '25mb' }));
