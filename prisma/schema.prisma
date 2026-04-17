@@ -1,0 +1,313 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      String   @default("user")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaces      WorkspaceMember[]
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
+}
+
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  plan       String   @default("free")
+  dailyLimit Int      @default(200)
+  ownerId    String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  owner         User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members       WorkspaceMember[]
+  campaigns     Campaign[]
+  leads         Lead[]
+  leadLists     LeadList[]
+  emailAccounts EmailAccount[]
+  inboxMessages InboxMessage[]
+  suppressionList SuppressionList[]
+  domains       Domain[]
+  bounces       EmailBounce[]
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String   @default("member") // owner, admin, member
+
+  user      User      @relation(fields: [userId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([userId, workspaceId])
+}
+
+model EmailAccount {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  email          String
+  firstName      String?
+  lastName       String?
+  smtpHost       String
+  smtpPort       Int
+  smtpUser       String
+  smtpPass       String
+  smtpEncryption String   @default("STARTTLS")
+  imapHost       String?
+  imapPort       Int?
+  imapUser       String?
+  imapPass       String?
+  health         Int      @default(100)
+  dailyLimit     Int      @default(50)
+  sentToday      Int      @default(0)
+  warmupEnabled  Boolean  @default(false)
+  status         String   @default("ACTIVATE") // ACTIVATE, WARNING, DISCONNECTED
+  lastUid        Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+  messages  InboxMessage[]
+  bounces   EmailBounce[]
+  warmupAccount WarmupAccount?
+}
+
+model InboxMessage {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  leadId         String?
+  emailAccountId String
+  subject        String
+  body           String
+  snippet        String?
+  isRead         Boolean  @default(false)
+  receivedAt     DateTime @default(now())
+  
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id])
+  lead         Lead?        @relation(fields: [leadId], references: [id])
+  emailAccount EmailAccount @relation(fields: [emailAccountId], references: [id])
+}
+
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  status      String   @default("DRAFT") // DRAFT, ACTIVE, PAUSED, COMPLETED
+  sent        Int      @default(0)
+  replies     Int      @default(0)
+  opens       Int      @default(0)
+  clicks      Int      @default(0)
+  unsubscribes Int     @default(0)
+  progress    Float    @default(0)
+  workspaceId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id])
+  steps     CampaignStep[]
+  leads     CampaignLead[]
+}
+
+model CampaignStep {
+  id         String @id @default(cuid())
+  campaignId String
+  stepNumber Int
+  subject    String
+  content    String
+  delayHours Int    @default(24)
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+}
+
+model LeadList {
+  id          String   @id @default(cuid())
+  name        String
+  workspaceId String
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  leads     Lead[]
+}
+
+model Lead {
+  id          String   @id @default(cuid())
+  email       String
+  firstName   String?
+  lastName    String?
+  name        String?
+  company     String?
+  phone       String?
+  status      String   @default("new")
+  listId      String?
+  workspaceId String
+  createdAt   DateTime @default(now())
+
+  list          LeadList?      @relation(fields: [listId], references: [id])
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id])
+  campaigns     CampaignLead[]
+  inboxMessages InboxMessage[]
+
+  @@unique([email, workspaceId])
+}
+
+model CampaignLead {
+  id         String    @id @default(cuid())
+  campaignId String
+  leadId     String
+  status     String    @default("pending") // pending, sent, opened, clicked, replied, bounced, unsubscribed
+  sentAt     DateTime?
+  openedAt   DateTime?
+  clickedAt  DateTime?
+  repliedAt  DateTime?
+  lastStep   Int       @default(0)
+  nextSendAt DateTime?
+  retryCount Int       @default(0)
+  lastError  String?
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  lead     Lead     @relation(fields: [leadId], references: [id])
+
+  opens    EmailOpen[]
+  clicks   EmailClick[]
+
+  @@unique([campaignId, leadId])
+}
+
+model EmailOpen {
+  id             String   @id @default(cuid())
+  campaignLeadId String
+  openedAt       DateTime @default(now())
+  ipAddress      String?
+  userAgent      String?
+
+  campaignLead CampaignLead @relation(fields: [campaignLeadId], references: [id], onDelete: Cascade)
+}
+
+model EmailClick {
+  id             String   @id @default(cuid())
+  campaignLeadId String
+  url            String
+  clickedAt      DateTime @default(now())
+  ipAddress      String?
+  userAgent      String?
+
+  campaignLead CampaignLead @relation(fields: [campaignLeadId], references: [id], onDelete: Cascade)
+}
+
+model SuppressionList {
+  id          String   @id @default(cuid())
+  workspaceId String
+  email       String
+  reason      String?  @default("unsubscribed")
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  @@unique([workspaceId, email])
+}
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  campaignId  String?
+  leadId      String?
+  subject     String
+  status      String   @default("sent")
+  errorMessage String?
+  sentAt      DateTime @default(now())
+}
+
+model EmailBounce {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  emailAccountId String
+  email          String
+  reason         String?
+  type           String   @default("hard") // hard, soft, spam_complaint
+  createdAt      DateTime @default(now())
+
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id])
+  emailAccount   EmailAccount @relation(fields: [emailAccountId], references: [id])
+}
+
+model JobQueueTrack {
+  id             String   @id @default(cuid())
+  jobId          String   @unique
+  campaignLeadId String
+  status         String   @default("processing") // processing, failed, completed, deferred
+  attempts       Int      @default(0)
+  nextRunAt      DateTime?
+  errorLogs      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Domain {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  domainName     String
+  dkimSelector   String   @default("abhimail")
+  dkimPrivateKey String
+  dkimPublicKey  String
+  dkimVerified   Boolean  @default(false)
+  spfVerified    Boolean  @default(false)
+  dmarcVerified  Boolean  @default(false)
+  status         String   @default("pending") // pending, verified, failed
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  @@unique([workspaceId, domainName])
+}
+
+model WarmupAccount {
+  id             String   @id @default(cuid())
+  emailAccountId String   @unique
+  email          String
+  domain         String
+  warmupStage    Int      @default(1) // day count
+  dailyLimit     Int      @default(10)
+  currentVolume  Int      @default(0)
+  healthScore    Int      @default(100)
+  lastSentAt     DateTime?
+  isActive       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  emailAccount  EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  sentInteractions     WarmupInteraction[] @relation("WarmupSender")
+  receivedInteractions WarmupInteraction[] @relation("WarmupReceiver")
+  schedules            WarmupSchedule[]
+}
+
+model WarmupInteraction {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  type       String   // "send", "open", "reply"
+  timestamp  DateTime @default(now())
+
+  sender     WarmupAccount @relation("WarmupSender", fields: [senderId], references: [id])
+  receiver   WarmupAccount @relation("WarmupReceiver", fields: [receiverId], references: [id])
+}
+
+model WarmupSchedule {
+  id           String   @id @default(cuid())
+  accountId    String
+  plannedSends Int      @default(0)
+  actualSends  Int      @default(0)
+  date         DateTime @default(now())
+
+  account      WarmupAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
